@@ -1,94 +1,115 @@
-import time
-from datetime import datetime, timedelta
-from data_manager import DataManager
-from flight_search import FlightSearch
-from flight_data import find_cheapest_flight
-from notification_manager import NotificationManager
+from tkinter import *
+from tkinter import messagebox
+from random import choice, randint, shuffle
+import pyperclip
+import json
 
-# ==================== Set up the Flight Search ====================
+# ---------------------------- PASSWORD GENERATOR ------------------------------- #
 
-data_manager = DataManager()
-sheet_data = data_manager.get_destination_data()
-flight_search = FlightSearch()
-notification_manager = NotificationManager()
+#Password Generator Project
+def generate_password():
+    letters = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z']
+    numbers = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
+    symbols = ['!', '#', '$', '%', '&', '(', ')', '*', '+']
 
-# Set your origin airport
-ORIGIN_CITY_IATA = "LON"
+    password_letters = [choice(letters) for _ in range(randint(8, 10))]
+    password_symbols = [choice(symbols) for _ in range(randint(2, 4))]
+    password_numbers = [choice(numbers) for _ in range(randint(2, 4))]
 
-# ==================== Update the Airport Codes in Google Sheet ====================
+    password_list = password_letters + password_symbols + password_numbers
+    shuffle(password_list)
 
-for row in sheet_data:
-    if row["iataCode"] == "":
-        row["iataCode"] = flight_search.get_destination_code(row["city"])
-        # slowing down requests to avoid rate limit
-        time.sleep(2)
-print(f"sheet_data:\n {sheet_data}")
+    password = "".join(password_list)
+    password_entry.insert(0, password)
+    pyperclip.copy(password)
 
-data_manager.destination_data = sheet_data
-data_manager.update_destination_codes()
+# ---------------------------- SAVE PASSWORD ------------------------------- #
+def save():
 
-# ==================== Retrieve your customer emails ====================
+    website = website_entry.get()
+    email = email_entry.get()
+    password = password_entry.get()
+    new_data = {
+        website: {
+            "email": email,
+            "password": password,
+        }
+    }
 
-customer_data = data_manager.get_customer_emails()
-# Verify the name of your email column in your sheet. Yours may be different from mine
-customer_email_list = [row["whatIsYourEmail?"] for row in customer_data]
-# print(f"Your email list includes {customer_email_list}")
-
-# ==================== Search for direct flights  ====================
-
-tomorrow = datetime.now() + timedelta(days=1)
-six_month_from_today = datetime.now() + timedelta(days=(6 * 30))
-
-for destination in sheet_data:
-    print(f"Getting direct flights for {destination['city']}...")
-    flights = flight_search.check_flights(
-        ORIGIN_CITY_IATA,
-        destination["iataCode"],
-        from_time=tomorrow,
-        to_time=six_month_from_today
-    )
-    cheapest_flight = find_cheapest_flight(flights)
-    print(f"{destination['city']}: £{cheapest_flight.price}")
-    # Slowing down requests to avoid rate limit
-    time.sleep(2)
-
-    # ==================== Search for indirect flight if N/A ====================
-
-    if cheapest_flight.price == "N/A":
-        print(f"No direct flight to {destination['city']}. Looking for indirect flights...")
-        stopover_flights = flight_search.check_flights(
-            ORIGIN_CITY_IATA,
-            destination["iataCode"],
-            from_time=tomorrow,
-            to_time=six_month_from_today,
-            is_direct=False
-        )
-        cheapest_flight = find_cheapest_flight(stopover_flights)
-        print(f"Cheapest indirect flight price is: £{cheapest_flight.price}")
-
-    # ==================== Send Notifications and Emails  ====================
-
-    if cheapest_flight.price != "N/A" and cheapest_flight.price < destination["lowestPrice"]:
-        # Customise the message depending on the number of stops
-        if cheapest_flight.stops == 0:
-            message = f"Low price alert! Only GBP {cheapest_flight.price} to fly direct "\
-                      f"from {cheapest_flight.origin_airport} to {cheapest_flight.destination_airport}, "\
-                      f"on {cheapest_flight.out_date} until {cheapest_flight.return_date}."
+    if len(website) == 0 or len(password) == 0:
+        messagebox.showinfo(title="Oops", message="Please make sure you haven't left any fields empty.")
+    else:
+        try:
+            with open("data.json", "r") as data_file:
+                #Reading old data
+                data = json.load(data_file)
+        except FileNotFoundError:
+            with open("data.json", "w") as data_file:
+                json.dump(new_data, data_file, indent=4)
         else:
-            message = f"Low price alert! Only GBP {cheapest_flight.price} to fly "\
-                      f"from {cheapest_flight.origin_airport} to {cheapest_flight.destination_airport}, "\
-                      f"with {cheapest_flight.stops} stop(s) "\
-                      f"departing on {cheapest_flight.out_date} and returning on {cheapest_flight.return_date}."
+            #Updating old data with new data
+            data.update(new_data)
 
-        print(f"Check your email. Lower price flight found to {destination['city']}!")
-
-        # notification_manager.send_sms(message_body=message)
-        # SMS not working? Try whatsapp instead.
-        notification_manager.send_whatsapp(message_body=message)
-
-        # Send emails to everyone on the list
-        notification_manager.send_emails(email_list=customer_email_list, email_body=message)
+            with open("data.json", "w") as data_file:
+                #Saving updated data
+                json.dump(data, data_file, indent=4)
+        finally:
+            website_entry.delete(0, END)
+            password_entry.delete(0, END)
 
 
+# ---------------------------- FIND PASSWORD ------------------------------- #
+def find_password():
+    website = website_entry.get()
+    try:
+        with open("data.json") as data_file:
+            data = json.load(data_file)
+    except FileNotFoundError:
+        messagebox.showinfo(title="Error", message="No Data File Found.")
+    else:
+        if website in data:
+            email = data[website]["email"]
+            password = data[website]["password"]
+            messagebox.showinfo(title=website, message=f"Email: {email}\nPassword: {password}")
+        else:
+            messagebox.showinfo(title="Error", message=f"No details for {website} exists.")
 
 
+# ---------------------------- UI SETUP ------------------------------- #
+
+window = Tk()
+window.title("Password Manager")
+window.config(padx=50, pady=50)
+
+canvas = Canvas(height=200, width=200)
+logo_img = PhotoImage(file="logo.png")
+canvas.create_image(100, 100, image=logo_img)
+canvas.grid(row=0, column=1)
+
+#Labels
+website_label = Label(text="Website:")
+website_label.grid(row=1, column=0)
+email_label = Label(text="Email/Username:")
+email_label.grid(row=2, column=0)
+password_label = Label(text="Password:")
+password_label.grid(row=3, column=0)
+
+#Entries
+website_entry = Entry(width=21)
+website_entry.grid(row=1, column=1)
+website_entry.focus()
+email_entry = Entry(width=35)
+email_entry.grid(row=2, column=1, columnspan=2)
+email_entry.insert(0, "angela@gmail.com")
+password_entry = Entry(width=21)
+password_entry.grid(row=3, column=1)
+
+# Buttons
+search_button = Button(text="Search", width=13, command=find_password)
+search_button.grid(row=1, column=2)
+generate_password_button = Button(text="Generate Password", command=generate_password)
+generate_password_button.grid(row=3, column=2)
+add_button = Button(text="Add", width=36, command=save)
+add_button.grid(row=4, column=1, columnspan=2)
+
+window.mainloop()
